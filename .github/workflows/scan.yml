@@ -4,18 +4,22 @@ on:
   schedule:
     - cron: '0 4 * * *'   # 06:00-07:00 România
     - cron: '0 13 * * *'  # 15:00-16:00 România
-  workflow_dispatch:       # rulare manuală
+  workflow_dispatch:
 
 jobs:
+  # Job 1: Scanare paralelă — fiecare shop în job separat
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 300   # 5h max
+    timeout-minutes: 240   # 4h max per shop
+    strategy:
+      fail-fast: false     # continuă celelalte shopuri dacă unul eșuează
+      matrix:
+        shop: [verdon, diaplant, cropmarket, agrocenter, agricover, fitomag, agroland]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -23,19 +27,62 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Scan all shops
+      - name: Scan ${{ matrix.shop }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python run.py --shop all
+        run: python run.py --shop ${{ matrix.shop }}
 
-      - name: Run matching (new products only)
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-${{ matrix.shop }}-${{ github.run_id }}
+          path: data/
+          retention-days: 7
+
+  # Job 2: Matching — rulează după ce toate shopurile au terminat
+  match:
+    runs-on: ubuntu-latest
+    needs: scan
+    if: always()   # rulează chiar dacă unele shopuri au eșuat
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run matching (GTIN + AI Batch)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python match_products.py
+
+  # Job 3: Enrichment — rulează după matching
+  enrich:
+    runs-on: ubuntu-latest
+    needs: match
+    if: always()
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Enrich new products (AI substanță activă)
         env:
@@ -43,11 +90,3 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python enrich_products.py
-
-      - name: Upload scan data artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-data-${{ github.run_id }}
-          path: data/
-          retention-days: 7
