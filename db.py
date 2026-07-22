@@ -28,7 +28,7 @@ def upsert_product(client: Client, product: Product) -> Optional[str]:
     }
     try:
         res = client.table("scanner_products").upsert(
-            data, on_conflict="url", returning="id"
+            data, on_conflict="url"
         ).execute()
         return res.data[0]["id"] if res.data else None
     except Exception as e:

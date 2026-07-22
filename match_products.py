@@ -23,12 +23,12 @@ def get_gtin_matches(client) -> list[dict]:
     """Pasul 1: match direct pe GTIN."""
     res = client.table("scanner_products") \
         .select("id, gtin, shop, name") \
-        .not_.is_("gtin", "null") \
         .execute()
 
     gtin_groups = defaultdict(list)
     for row in res.data:
-        gtin_groups[row["gtin"]].append(row)
+        if row.get("gtin"):  # filtru Python — evită sintaxa PostgREST not.is.null
+            gtin_groups[row["gtin"]].append(row)
 
     new_matches = []
     for gtin, products in gtin_groups.items():

@@ -29,14 +29,14 @@ def run_enrichment():
     db = create_client(supabase_url, supabase_key)
     ai = anthropic.Anthropic(api_key=api_key)
 
-    # Selectează produse neîmbogățite
+    # Selectează produse neîmbogățite (filtru Python — evită sintaxa PostgREST is.null)
     res = db.table("scanner_products") \
-        .select("id, name, brand") \
-        .is_("enriched_at", "null") \
-        .limit(1000) \
+        .select("id, name, brand, enriched_at") \
+        .limit(2000) \
         .execute()
+    res_data = [r for r in res.data if not r.get("enriched_at")]
 
-    products = res.data
+    products = res_data
     if not products:
         logger.info("Nicio îmbogățire necesară.")
         return {"enriched": 0}
