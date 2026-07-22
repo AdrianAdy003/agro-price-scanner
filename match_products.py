@@ -95,9 +95,11 @@ def run_ai_matching(candidates: list[tuple]) -> list[dict]:
     client = anthropic.Anthropic(api_key=api_key)
 
     requests = []
+    id_map = {}  # index → (id_a, id_b)
     for i, (id_a, id_b, name_a, name_b) in enumerate(candidates[:500]):  # max 500/batch
+        id_map[str(i)] = (id_a, id_b)
         requests.append({
-            "custom_id": f"{id_a}|{id_b}",
+            "custom_id": str(i),  # max 3 cifre — sub limita de 64 chars
             "params": {
                 "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 20,
@@ -132,7 +134,7 @@ def run_ai_matching(candidates: list[tuple]) -> list[dict]:
             content = result.result.message.content[0].text
             data = json.loads(content)
             if data.get("match"):
-                id_a, id_b = result.custom_id.split("|")
+                id_a, id_b = id_map[result.custom_id]
                 matches.append({"id_a": id_a, "id_b": id_b, "method": "ai"})
         except Exception:
             continue
