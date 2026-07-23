@@ -43,43 +43,43 @@ def run_enrichment():
 
     logger.info("De îmbogățit: %d produse", len(products))
 
-    # Batch-uri de 20
+    # Un singur batch cu toate produsele (Batch API suportă până la 10.000 cereri)
     all_results = {}
-    for i in range(0, len(products), 20):
-        batch_products = products[i:i+20]
-        requests = []
-        for p in batch_products:
-            text = p["name"]
-            if p.get("brand"):
-                text = f"{p['brand']} {text}"
-            requests.append({
-                "custom_id": p["id"],
-                "params": {
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 150,
-                    "system": [{"type": "text", "text": ENRICH_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-                    "messages": [{"role": "user", "content": text}]
-                }
-            })
+    requests = []
+    for p in products:
+        text = p["name"]
+        if p.get("brand"):
+            text = f"{p['brand']} {text}"
+        requests.append({
+            "custom_id": p["id"],
+            "params": {
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 150,
+                "system": [{"type": "text", "text": ENRICH_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user", "content": text}]
+            }
+        })
 
-        batch = ai.messages.batches.create(requests=requests)
-        logger.info("Batch enrichment %d/%d trimis: %s", i//20+1, (len(products)+19)//20, batch.id)
+    batch = ai.messages.batches.create(requests=requests)
+    logger.info("Batch enrichment trimis: %s (%d produse)", batch.id, len(requests))
 
-        # Polling
-        while True:
-            status = ai.messages.batches.retrieve(batch.id)
-            if status.processing_status == "ended":
-                break
-            time.sleep(60)
+    # Polling pentru un singur batch
+    while True:
+        status = ai.messages.batches.retrieve(batch.id)
+        logger.info("Batch %s: %s procesate / %d total",
+                    batch.id, status.request_counts.processing, len(requests))
+        if status.processing_status == "ended":
+            break
+        time.sleep(60)
 
-        for result in ai.messages.batches.results(batch.id):
-            if result.result.type != "succeeded":
-                continue
-            try:
-                data = json.loads(result.result.message.content[0].text)
-                all_results[result.custom_id] = data
-            except Exception:
-                all_results[result.custom_id] = {}
+    for result in ai.messages.batches.results(batch.id):
+        if result.result.type != "succeeded":
+            continue
+        try:
+            data = json.loads(result.result.message.content[0].text)
+            all_results[result.custom_id] = data
+        except Exception:
+            all_results[result.custom_id] = {}
 
     # Scrie rezultatele în DB
     from datetime import datetime, timezone
